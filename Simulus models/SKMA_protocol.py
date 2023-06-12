@@ -1,3 +1,4 @@
+
 import simulus
 import random
 from cryptography.hazmat.primitives import serialization, hashes
@@ -44,15 +45,22 @@ class Node:
     def transmit_data_packet(self, sink, data, recipient_public_key):
         if not self.channel_busy:
             print("RTU Node %d starts transmitting data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
-            self.sim.sleep(random.uniform(0.5, 2))  # Random transmission time between 0.5 and 2
+            transmission_time = random.uniform(0.5, 2)  # Random transmission time between 0.5 and 2
+            self.sim.sleep(transmission_time)
             self.channel_busy = True
 
-            encrypted_data = self.encrypt_data(data, recipient_public_key)
-            print("RTU Node %d finishes transmitting encrypted data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
-            sink.receive_data_packet(encrypted_data, self.public_key)
+            # Simulate network delay/failure
+            if random.random() < 0.1:  # 10% chance of failure
+                print("Transmission from Node %d to Node %d failed at %g" % (self.id, sink.id, self.sim.now))
+                self.channel_busy = False
+            else:
+                encrypted_data = self.encrypt_data(data, recipient_public_key)
+                print("RTU Node %d finishes transmitting encrypted data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
+                sink.receive_data_packet(encrypted_data, self.public_key)
 
-            self.sim.sleep(random.uniform(0.5, 2))  # Random channel busy time between 0.5 and 2
-            self.channel_busy = False
+                channel_busy_time = random.uniform(0.5, 2)  # Random channel busy time between 0.5 and 2
+                self.sim.sleep(channel_busy_time)
+                self.channel_busy = False
 
     def broadcast_data(self, data):
         for node in self.nodes:
@@ -78,10 +86,8 @@ class Node:
             print("RTU Node %d received data from an unknown sender at %g" % (self.id, self.sim.now))
 
 
-
-
 def master_station(sim, num_nodes):
-    random.seed(450)  # Set seed value for consistent results
+    random.seed(27)  # Set seed value for consistent results
     nodes = [Node(sim, i, []) for i in range(num_nodes)]  # Initialize nodes dynamically
     for node in nodes:
         node.generate_key_pair()
@@ -102,10 +108,3 @@ def master_station(sim, num_nodes):
 sim = simulus.simulator()
 sim.process(master_station, sim, num_nodes=10)  # Change the num_nodes value to the desired number of nodes
 sim.run(until=5)  # Run the simulation for n times
-
-
-
-
-
-
-
