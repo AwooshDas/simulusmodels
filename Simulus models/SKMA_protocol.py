@@ -5,8 +5,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from X509 import X509CertificateAuthority, X509Node
 import numpy as np
 
-average_transmission_time = random.uniform(0.001, 0.01)
-average_channel_busy_time = random.uniform(0.001, 0.05)
+average_transmission_time = random.uniform(1, 10)
+average_channel_busy_time = random.uniform(1, 5)
 class Node:
     def __init__(self, sim, id, nodes):
         self.sim = sim
@@ -46,7 +46,7 @@ class Node:
         return plaintext.decode()
 
     def transmit_data_packet(self, sink, data, recipient_public_key):
-        if not self.channel_busy:
+        if not self.channel_busy and self != sink:
             print("RTU Node %d starts transmitting data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
             transmission_time = np.random.exponential(average_transmission_time)
             self.sim.sleep(transmission_time)
@@ -64,12 +64,6 @@ class Node:
                 channel_busy_time = np.random.exponential(average_channel_busy_time)
                 self.sim.sleep(channel_busy_time)
                 self.channel_busy = False
-
-    def broadcast_data(self, data):
-        for node in self.nodes:
-            if node != self:
-                encrypted_data = self.encrypt_data(data, node.public_key)
-                node.receive_data_packet(encrypted_data, self.public_key)
 
     def receive_data_packet(self, encrypted_data, sender_public_key):
         decrypted_data = self.decrypt_data(encrypted_data)
@@ -91,24 +85,29 @@ class Node:
 
 def master_station(sim, num_nodes):
     certificate_authority = X509CertificateAuthority()
-    random.seed(453)  # Set seed value for consistent results
-    nodes = [X509Node(sim, i, [], certificate_authority) for i in range(num_nodes)] # Initialize nodes dynamically
+    random.seed(600)  # Set seed value for consistent results
+    nodes = [X509Node(sim, i, [], certificate_authority) for i in range(num_nodes)]  # Initialize nodes dynamically
     for node in nodes:
         node.generate_key_pair()
         node.nodes = nodes
-        node.generate_certificate("Node %d" % node.id)
-        node.save_certificate("node%d_cert.pem" % node.id)
-        node.load_certificate("node%d_cert.pem" % node.id)
-        node.print_certificate()
+
     while True:
         # Generate random data from master station
         data = "(Sample data)"
         source_node = random.choice(nodes)  # Select a random source node
         destination_node = random.choice(nodes)  # Select a random destination node
-
-        print("Master station broadcasts data %s to all RTU Nodes" % (data))
+        
+        broadcast_probabilities = [0.75, 0.25]  # Probabilities of not broadcasting and broadcasting respectively
+        broadcast_decision = random.choices([False, True], broadcast_probabilities)[0]  # Choose False (no broadcast) or True (broadcast) based on probabilities
+        
+        if broadcast_decision:
+            print("Master station broadcasts data %s to all RTU Nodes" % data)
+        
         source_node.transmit_data_packet(destination_node, data, destination_node.public_key)
-        source_node.broadcast_data(data)
+        source_node.generate_certificate("Node %d" % source_node.id)
+        source_node.save_certificate("node%d_cert.pem" % source_node.id)
+        source_node.load_certificate("node%d_cert.pem" % source_node.id)
+        source_node.print_certificate()
 
         sim.sleep(random.uniform(1, 5))  # Random time between successive broadcasts
 
@@ -116,4 +115,4 @@ def master_station(sim, num_nodes):
 
 sim = simulus.simulator()
 sim.process(master_station, sim, num_nodes=10)  # Change the num_nodes value to the desired number of nodes
-sim.run(until=5)  # Run the simulation for n times
+sim.run(until=100)  # Run the simulation for n times
