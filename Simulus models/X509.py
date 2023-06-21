@@ -5,7 +5,6 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 from cryptography import x509
 from datetime import datetime, timedelta
 import random
-import base64
 import numpy as np
 
 average_transmission_time = random.uniform(0.001, 0.01)
@@ -85,13 +84,11 @@ class X509Node:
     def print_certificate(self):
         if self.certificate:
             cert = self.certificate
-            print("Certificate Details:")
-            print("Subject Name:", cert.subject.rfc4514_string())
-            print("Issuer Name:", cert.issuer.rfc4514_string())
-            print("Serial Number:", cert.serial_number)
-            print("Not Valid Before:", cert.not_valid_before)
-            print("Not Valid After:", cert.not_valid_after)
-            print("Public Key:", cert.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode())
+            decoded_cert = load_pem_x509_certificate(cert.public_bytes(Encoding.PEM))
+            decoded_cert_str = decoded_cert.public_bytes().decode()
+
+            print("Decoded Certificate:")
+            print(decoded_cert_str)
         else:
             print("No certificate loaded.")
 
@@ -136,12 +133,6 @@ class X509Node:
                 channel_busy_time = np.random.exponential(average_channel_busy_time)
                 self.sim.sleep(channel_busy_time)
                 self.channel_busy = False
-
-    def broadcast_data(self, data):
-        for node in self.nodes:
-            if node != self:
-                encrypted_data = self.encrypt_data(data, node.public_key)
-                node.receive_data_packet(encrypted_data, self.public_key)
 
     def receive_data_packet(self, encrypted_data, sender_public_key):
         decrypted_data = self.decrypt_data(encrypted_data)
