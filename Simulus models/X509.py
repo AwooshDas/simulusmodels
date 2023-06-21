@@ -4,6 +4,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
 from cryptography import x509
 from datetime import datetime, timedelta
+import base64
 import random
 import numpy as np
 
@@ -22,7 +23,7 @@ class X509CertificateAuthority:
             x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, subject_name)
         ]))
         builder = builder.issuer_name(x509.Name([
-            x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, subject_name)
+            x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, "CN=ModelCertificateAuthority, OU=CybersecurityDivision, O=ITI, C=USA")
         ]))
         builder = builder.not_valid_before(datetime.utcnow())
         builder = builder.not_valid_after(datetime.utcnow() + timedelta(days=365))
@@ -84,11 +85,13 @@ class X509Node:
     def print_certificate(self):
         if self.certificate:
             cert = self.certificate
-            decoded_cert = load_pem_x509_certificate(cert.public_bytes(Encoding.PEM))
-            decoded_cert_str = decoded_cert.public_bytes().decode()
-
-            print("Decoded Certificate:")
-            print(decoded_cert_str)
+            print("Certificate Details:")
+            print("Subject Name:", cert.subject.rfc4514_string())
+            print("Issuer Name:", cert.issuer.rfc4514_string())
+            print("Serial Number:", cert.serial_number)
+            print("Not Valid Before:", cert.not_valid_before)
+            print("Not Valid After:", cert.not_valid_after)
+            print("Public Key:", cert.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode())
         else:
             print("No certificate loaded.")
 
