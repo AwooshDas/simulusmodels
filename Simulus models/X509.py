@@ -10,6 +10,7 @@ import numpy as np
 
 average_transmission_time = random.uniform(0.001, 0.01)
 average_channel_busy_time = random.uniform(0.001, 0.05)
+polling_rate = 5 # define polling interval for polling functionality
 
 class X509CertificateAuthority:
     def __init__(self):
@@ -58,11 +59,15 @@ class X509Node:
         self.sim = sim
         self.id = id
         self.channel_busy = False
-        self.private_key = None
-        self.public_key = None
+        self.private_key = None # node private key 
+        self.public_key = None # node public key
         self.certificate = None
         self.nodes = nodes
         self.certificate_authority = certificate_authority
+        self.poll_interval = polling_rate
+        self.transmissions = 0  # Number of data transmissions
+        self.receptions = 0  # Number of data receptions
+        self.failed_transmissions = 0  # Number of failed transmissions
 
     def generate_key_pair(self):
         self.private_key = rsa.generate_private_key(
@@ -118,7 +123,7 @@ class X509Node:
         return plaintext.decode()
 
     def transmit_data_packet(self, sink, data, recipient_public_key):
-        if not self.channel_busy:
+        if not self.channel_busy and self != sink:
             print("RTU Node %d starts transmitting data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
             transmission_time = np.random.exponential(average_transmission_time)
             self.sim.sleep(transmission_time)
@@ -128,9 +133,11 @@ class X509Node:
             if random.random() < 0.1:  # 10% chance of failure
                 print("Transmission from Node %d to Node %d failed at %g" % (self.id, sink.id, self.sim.now))
                 self.channel_busy = False
+                self.failed_transmissions += 1 # Increment failed transmissions count
             else:
                 encrypted_data = self.encrypt_data(data, recipient_public_key)
                 print("RTU Node %d finishes transmitting encrypted data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
+                self.transmissions += 1  # Increment transmissions count
                 sink.receive_data_packet(encrypted_data, self.public_key)
 
                 channel_busy_time = np.random.exponential(average_channel_busy_time)
@@ -151,5 +158,15 @@ class X509Node:
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ).decode()
             print("RTU Node %d received decrypted data '%s' from Node %d with public key:\n%s\nat %g" % (self.id, decrypted_data, sender_node_id, sender_public_key_str, self.sim.now))
+            self.receptions += 1  # Increment receptions count
         else:
             print("RTU Node %d received data from an unknown sender at %g" % (self.id, self.sim.now))
+    
+    def perform_polling(self):
+        # Simulate polling operation and return data
+
+        transmissions = self.transmissions
+        receptions = self.receptions
+        failed_transmissions = self.failed_transmissions
+
+        return transmissions, receptions, failed_transmissions

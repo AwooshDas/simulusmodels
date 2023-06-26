@@ -7,14 +7,19 @@ import numpy as np
 
 average_transmission_time = random.uniform(1, 10)
 average_channel_busy_time = random.uniform(1, 5)
+polling_rate = 5 # define polling interval for polling functionality
 class Node:
     def __init__(self, sim, id, nodes):
         self.sim = sim
         self.id = id
         self.channel_busy = False
-        self.private_key = None
-        self.public_key = None
+        self.private_key = None # node private key 
+        self.public_key = None # node public key
         self.nodes = nodes
+        self.poll_interval = polling_rate
+        self.transmissions = 0  # Number of data transmissions
+        self.receptions = 0  # Number of data receptions
+        self.failed_transmissions = 0  # Number of failed transmissions
 
     def generate_key_pair(self):
         self.private_key = rsa.generate_private_key(
@@ -56,9 +61,11 @@ class Node:
             if random.random() < 0.1:  # 10% chance of failure
                 print("Transmission from Node %d to Node %d failed at %g" % (self.id, sink.id, self.sim.now))
                 self.channel_busy = False
+                self.failed_transmissions += 1 # Increment failed transmissions count
             else:
                 encrypted_data = self.encrypt_data(data, recipient_public_key)
                 print("RTU Node %d finishes transmitting encrypted data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
+                self.transmissions += 1  # Increment transmissions count
                 sink.receive_data_packet(encrypted_data, self.public_key)
 
                 channel_busy_time = np.random.exponential(average_channel_busy_time)
@@ -79,13 +86,23 @@ class Node:
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ).decode()
             print("RTU Node %d received decrypted data '%s' from Node %d with public key:\n%s\nat %g" % (self.id, decrypted_data, sender_node_id, sender_public_key_str, self.sim.now))
+            self.receptions += 1  # Increment receptions count
         else:
             print("RTU Node %d received data from an unknown sender at %g" % (self.id, self.sim.now))
+    
+    def perform_polling(self):
+        # Simulate polling operation and return data
+
+        transmissions = self.transmissions
+        receptions = self.receptions
+        failed_transmissions = self.failed_transmissions
+
+        return transmissions, receptions, failed_transmissions
 
 
 def master_station(sim, num_nodes):
     certificate_authority = X509CertificateAuthority()
-    random.seed(600)  # Set seed value for consistent results
+    random.seed(500)  # Set seed value for consistent results
     nodes = [X509Node(sim, i, [], certificate_authority) for i in range(num_nodes)]  # Initialize nodes dynamically
     for node in nodes:
         node.generate_key_pair()
@@ -101,13 +118,17 @@ def master_station(sim, num_nodes):
         broadcast_decision = random.choices([False, True], broadcast_probabilities)[0]  # Choose False (no broadcast) or True (broadcast) based on probabilities
         
         if broadcast_decision:
-            print("Master station broadcasts data %s to all RTU Nodes" % data)
+            print("Master station broadcasts data %s to all RTU Nodes at %g " % (data, sim.now))
         
         source_node.transmit_data_packet(destination_node, data, destination_node.public_key)
+        if sim.now % polling_rate <= 2:  # Perform polling only after the specified interval
+            transmissions, receptions, failed_transmissions = source_node.perform_polling()
+            print("POLLING RESULTS: Source Node %d - Transmissions: %d, Receptions: %d, Failed Transmissions: %d" % (source_node.id, transmissions, receptions, failed_transmissions))
         source_node.generate_certificate("Node %d" % source_node.id)
         source_node.save_certificate("node%d_cert.pem" % source_node.id)
         source_node.load_certificate("node%d_cert.pem" % source_node.id)
         source_node.print_certificate()
+        
 
         sim.sleep(random.uniform(1, 5))  # Random time between successive broadcasts
 
@@ -116,3 +137,5 @@ def master_station(sim, num_nodes):
 sim = simulus.simulator()
 sim.process(master_station, sim, num_nodes=10)  # Change the num_nodes value to the desired number of nodes
 sim.run(until=100)  # Run the simulation for n times
+
+
