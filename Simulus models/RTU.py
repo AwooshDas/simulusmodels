@@ -2,20 +2,24 @@ import simulus
 import random
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from X509 import X509CertificateAuthority, X509Node
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
+from X509 import X509CertificateAuthority
 import numpy as np
 
 average_transmission_time = random.uniform(1, 10)
 average_channel_busy_time = random.uniform(1, 5)
 polling_rate = 5 # define polling interval for polling functionality
-class Node:
-    def __init__(self, sim, id, nodes):
+
+class RTU:
+    def __init__(self, sim, id, nodes, certificate_authority):
         self.sim = sim
         self.id = id
         self.channel_busy = False
         self.private_key = None # node private key 
         self.public_key = None # node public key
+        self.certificate = None
         self.nodes = nodes
+        self.certificate_authority = certificate_authority
         self.poll_interval = polling_rate
         self.transmissions = 0  # Number of data transmissions
         self.receptions = 0  # Number of data receptions
@@ -27,6 +31,30 @@ class Node:
             key_size=2048,
         )
         self.public_key = self.private_key.public_key()
+
+    def generate_certificate(self, subject_name):
+        self.certificate_authority.generate_certificate(subject_name)
+        self.certificate = self.certificate_authority.get_certificate()
+
+    def save_certificate(self, filename):
+        self.certificate_authority.save_certificate(filename)
+
+    def load_certificate(self, filename):
+        self.certificate_authority.load_certificate(filename)
+        self.certificate = self.certificate_authority.get_certificate()
+
+    def print_certificate(self):
+        if self.certificate:
+            cert = self.certificate
+            print("Certificate Details:")
+            print("Subject Name:", cert.subject.rfc4514_string())
+            print("Issuer Name:", cert.issuer.rfc4514_string())
+            print("Serial Number:", cert.serial_number)
+            print("Not Valid Before:", cert.not_valid_before)
+            print("Not Valid After:", cert.not_valid_after)
+            print("Public Key:", cert.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode())
+        else:
+            print("No certificate loaded.")
 
     def encrypt_data(self, data, recipient_public_key):
         ciphertext = recipient_public_key.encrypt(
@@ -52,19 +80,28 @@ class Node:
 
     def transmit_data_packet(self, sink, data, recipient_public_key):
         if not self.channel_busy and self != sink:
-            print("RTU Node %d starts transmitting data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
+            if sink.id == "Master Station":
+                print("RTU %d starts transmitting data packet to Master Station at %g" % (self.id, self.sim.now))
+            else:
+                print("RTU %d starts transmitting data packet to RTU %d at %g" % (self.id, sink.id, self.sim.now))
             transmission_time = np.random.exponential(average_transmission_time)
             self.sim.sleep(transmission_time)
             self.channel_busy = True
 
             # Simulate network delay/failure
             if random.random() < 0.1:  # 10% chance of failure
-                print("Transmission from Node %d to Node %d failed at %g" % (self.id, sink.id, self.sim.now))
+                if sink.id == "Master Station":
+                    print("Transmission from RTU %d to Master Station failed at %g" % (self.id, self.sim.now))
+                else:
+                    print("Transmission from RTU %d to RTU %d failed at %g" % (self.id, sink.id, self.sim.now))
                 self.channel_busy = False
                 self.failed_transmissions += 1 # Increment failed transmissions count
             else:
                 encrypted_data = self.encrypt_data(data, recipient_public_key)
-                print("RTU Node %d finishes transmitting encrypted data packet to Node %d at %g" % (self.id, sink.id, self.sim.now))
+                if sink.id == "Master Station":
+                    print ("RTU %d finishes transmitting encrypted data packet to Master Station at %g" % (self.id, self.sim.now))
+                else:
+                    print("RTU %d finishes transmitting encrypted data packet to RTU %d at %g" % (self.id, sink.id, self.sim.now))
                 self.transmissions += 1  # Increment transmissions count
                 sink.receive_data_packet(encrypted_data, self.public_key)
 
@@ -85,7 +122,10 @@ class Node:
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ).decode()
-            print("RTU Node %d received decrypted data '%s' from Node %d with public key:\n%s\nat %g" % (self.id, decrypted_data, sender_node_id, sender_public_key_str, self.sim.now))
+            if sender_node.id == "Master Station":
+                print("RTU Node %d received decrypted data '%s' from Master Station with public key:\n%s\nat %g" % (self.id, decrypted_data, sender_public_key_str, self.sim.now))
+            else:
+                print("RTU Node %d received decrypted data '%s' from RTU Node %d with public key:\n%s\nat %g" % (self.id, decrypted_data, sender_node_id, sender_public_key_str, self.sim.now))
             self.receptions += 1  # Increment receptions count
         else:
             print("RTU Node %d received data from an unknown sender at %g" % (self.id, self.sim.now))
@@ -97,45 +137,6 @@ class Node:
         receptions = self.receptions
         failed_transmissions = self.failed_transmissions
 
-        return transmissions, receptions, failed_transmissions
-
-
-def master_station(sim, num_nodes):
-    certificate_authority = X509CertificateAuthority()
-    random.seed(500)  # Set seed value for consistent results
-    nodes = [X509Node(sim, i, [], certificate_authority) for i in range(num_nodes)]  # Initialize nodes dynamically
-    for node in nodes:
-        node.generate_key_pair()
-        node.nodes = nodes
-
-    while True:
-        # Generate random data from master station
-        data = "(Sample data)"
-        source_node = random.choice(nodes)  # Select a random source node
-        destination_node = random.choice(nodes)  # Select a random destination node
-        
-        broadcast_probabilities = [0.75, 0.25]  # Probabilities of not broadcasting and broadcasting respectively
-        broadcast_decision = random.choices([False, True], broadcast_probabilities)[0]  # Choose False (no broadcast) or True (broadcast) based on probabilities
-        
-        if broadcast_decision:
-            print("Master station broadcasts data %s to all RTU Nodes at %g " % (data, sim.now))
-        
-        source_node.transmit_data_packet(destination_node, data, destination_node.public_key)
-        if sim.now % polling_rate <= 2:  # Perform polling only after the specified interval
-            transmissions, receptions, failed_transmissions = source_node.perform_polling()
-            print("POLLING RESULTS: Source Node %d - Transmissions: %d, Receptions: %d, Failed Transmissions: %d" % (source_node.id, transmissions, receptions, failed_transmissions))
-        source_node.generate_certificate("Node %d" % source_node.id)
-        source_node.save_certificate("node%d_cert.pem" % source_node.id)
-        source_node.load_certificate("node%d_cert.pem" % source_node.id)
-        source_node.print_certificate()
-        
-
-        sim.sleep(random.uniform(1, 5))  # Random time between successive broadcasts
-
-
-
-sim = simulus.simulator()
-sim.process(master_station, sim, num_nodes=10)  # Change the num_nodes value to the desired number of nodes
-sim.run(until=100)  # Run the simulation for n times
+        print("POLLING RESULTS: Source RTU %d - Transmissions: %d, Receptions: %d, Failed Transmissions: %d" % (self.id, transmissions, receptions, failed_transmissions))
 
 
