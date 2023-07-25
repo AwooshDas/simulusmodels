@@ -6,8 +6,9 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 from X509 import X509CertificateAuthority
 import numpy as np
 
-average_transmission_time = random.uniform(1, 10)
-average_channel_busy_time = random.uniform(1, 5)
+average_packet_ready_time = random.uniform(1, 5)
+average_send_time = random.uniform(1, 10)
+average_channel_busy_time = random.uniform(1, 15)
 polling_rate = 5 # define polling interval for polling functionality
 
 class MTU:
@@ -42,6 +43,24 @@ class MTU:
     def load_certificate(self, filename):
         self.certificate_authority.load_certificate(filename)
         self.certificate = self.certificate_authority.get_certificate()
+    
+    def revoke_certificate(self, certificate_to_revoke):
+        self.certificate_authority.revoke_certificate(certificate_to_revoke)
+
+    def is_certificate_revoked(self, certificate_to_check):
+        return self.certificate_authority.is_certificate_revoked(certificate_to_check)
+
+    def update_certificate(self, new_certificate):
+        self.certificate_authority.update_certificate(new_certificate)
+
+    def generate_crl(self):
+        return self.certificate_authority.generate_crl()
+
+    def save_crl(self, crl, filename):
+        self.certificate_authority.save_crl(crl, filename)
+
+    def load_crl(self, filename):
+        return self.certificate_authority.load_crl(filename)
     
     def print_certificate(self):
         if self.certificate:
@@ -78,27 +97,56 @@ class MTU:
         )
         return plaintext.decode()
     
-    def transmit_data_packet(self, sink, data, recipient_public_key):
+    def transmit_data_packet(self, sink, data, recipient_public_keys, all_nodes):
         if not self.channel_busy and self != sink:
-            print("Master Station starts transmitting data packet to RTU %d at %g" % (sink.id, self.sim.now))
-            transmission_time = np.random.exponential(average_transmission_time)
+            # Check if sink is a list and handle multicast or broadcast
+            if isinstance(sink, list):
+                if len(sink) == 1:
+                    print("Master Station starts transmitting data packet to RTU %d at %g" % (sink[0].id, self.sim.now))
+                elif len(sink) > 1 and len(sink) < len(all_nodes):
+                    sink_node_ids = [node.id for node in sink]
+                    print("Master Station multicasts data packet to RTUs %s at %g" % (', '.join(map(str, sink_node_ids)), self.sim.now))
+                else:
+                    print("Master Station broadcasts data packet to all RTUs at %g" % self.sim.now)
+            else:
+                print("Master Station starts transmitting data packet to RTU %d at %g" % (sink.id, self.sim.now))
+
+            transmission_time = np.random.exponential(average_packet_ready_time)
             self.sim.sleep(transmission_time)
             self.channel_busy = True
 
-            # Simulate network delay/failure
-            if random.random() < 0.1:  # 10% chance of failure
-                print("Transmission from Master Station to RTU %d failed at %g" % (sink.id, self.sim.now))
-                self.channel_busy = False
-                self.failed_transmissions += 1 # Increment failed transmissions count
+            # Simulate network delay/failure for each sink node
+            if isinstance(sink, list):
+                for node, recipient_key in zip(sink, recipient_public_keys):
+                    if random.random() < 0.1:  # 10% chance of failure for each node in a multicast scenario
+                        print("Transmission from Master Station to RTU %d failed at %g" % (node.id, self.sim.now))
+                        self.channel_busy = False
+                        self.failed_transmissions += 1  # Increment failed transmissions count
+                    else:
+                        encrypted_data = self.encrypt_data(data, recipient_key)
+                        print("Master Station finishes transmitting encrypted data packet to RTU %d at %g" % (node.id, self.sim.now))
+                        self.transmissions += 1  # Increment transmissions count
+                        send_time = np.random.exponential(average_send_time)
+                        self.sim.sleep(send_time)
+                        self.channel_busy = True
+                        node.receive_data_packet(encrypted_data, self.public_key)
             else:
-                encrypted_data = self.encrypt_data(data, recipient_public_key)
-                print("Master Station finishes transmitting encrypted data packet to RTU %d at %g" % (sink.id, self.sim.now))
-                self.transmissions += 1  # Increment transmissions count
-                sink.receive_data_packet(encrypted_data, self.public_key)
+                if random.random() < 0.1:  # 10% chance of failure
+                    print("Transmission from Master Station to RTU %d failed at %g" % (sink.id, self.sim.now))
+                    self.channel_busy = False
+                    self.failed_transmissions += 1  # Increment failed transmissions count
+                else:
+                    encrypted_data = self.encrypt_data(data, recipient_public_keys)
+                    print("Master Station finishes transmitting encrypted data packet to RTU %d at %g" % (sink.id, self.sim.now))
+                    self.transmissions += 1  # Increment transmissions count
+                    send_time = np.random.exponential(average_send_time)
+                    self.sim.sleep(send_time)
+                    self.channel_busy = True
+                    sink.receive_data_packet(encrypted_data, self.public_key)
 
-                channel_busy_time = np.random.exponential(average_channel_busy_time)
-                self.sim.sleep(channel_busy_time)
-                self.channel_busy = False
+            channel_busy_time = np.random.exponential(average_channel_busy_time)
+            self.sim.sleep(channel_busy_time)
+            self.channel_busy = False
     
     def receive_data_packet(self, encrypted_data, sender_public_key):
         decrypted_data = self.decrypt_data(encrypted_data)
